@@ -1,0 +1,19 @@
+GEM
+  remote: https://rubygems.org/
+  specs:
+    event_emitter (0.2.6)
+    ruby-kafka (0.5.4)
+    websocket (1.2.5)
+    websocket-client-simple (0.3.0)
+      event_emitter
+      websocket
+
+PLATFORMS
+  ruby
+
+DEPENDENCIES
+  ruby-kafka
+  websocket-client-simple
+
+BUNDLED WITH
+   1.11.2

@@ -5,10 +5,13 @@ import org.apache.spark.sql._
 import org.apache.spark.SparkContext
 import org.apache.spark.SparkContext._
 import org.apache.spark.SparkConf
+import org.apache.spark.sql.functions.expr
 
 object MeetupTrends {
 
   def main(args: Array[String]) {
+
+    val dst = args(0)
 
     val spark = (SparkSession
       builder()
@@ -16,10 +19,9 @@ object MeetupTrends {
       getOrCreate()
     )
 
-    val sc = spark.sparkContext
-
-    val schema = (new StructType()
+    val meetup = (new StructType()
       add("mtime", LongType)
+      add("rsvp_id", LongType)
       add("group",
         new StructType()
           add("group_city", StringType)
@@ -36,8 +38,16 @@ object MeetupTrends {
       )
     )
 
+    val weather = (new StructType()
+      add("currently", new StructType()
+        add("temperature", FloatType)
+        add("time", LongType)
+      )
+      add("meetup_rsvp_id", LongType)
+    )
 
-    val df = (
+
+    val meetup_stream = (
       spark.readStream.format("kafka")
       option("kafka.bootstrap.servers", "localhost:29092")
       option("subscribe", "meetup")
@@ -45,29 +55,59 @@ object MeetupTrends {
       load()
     )
 
-    val data =
-      df.select(col("key").cast("string"),
-                from_json(col("value").cast("string"), schema).alias("parsed"))
+    val weather_stream = (
+      spark.readStream.format("kafka")
+      option("kafka.bootstrap.servers", "localhost:29092")
+      option("subscribe", "meetup_weather_ref")
+      option("startingOffsets", "earliest")
+      load()
+    )
+
+
+
+    val meetup_data =
+      meetup_stream.select(col("key").cast("string"),
+        from_json(col("value").cast("string"), meetup).alias("parsed"))
+
+    val weather_data =
+      weather_stream.select(col("key").cast("string"),
+        from_json(col("value").cast("string"), weather).alias("parsed"))
+
 
     val flattened = (
-      data.select(
+      meetup_data
+      filter(col("parsed.group.group_country") === "us")
+      select(
         from_unixtime((col("parsed.mtime")/1000).cast(IntegerType)).cast(TimestampType).as("timestamp"),
         col("parsed.group.group_country").as("country"),
         col("parsed.group.group_city").as("city"),
+        col("parsed.rsvp_id").as("rsvp_id"),
         explode(col("parsed.group.group_topics")).as("topics")
       )
+      withWatermark("timestamp", "5 minutes")
     )
 
+    val weather_parsed = (
+      weather_data.select(
+        from_unixtime(col("parsed.currently.time")).cast(TimestampType).as("weather_timestamp"),
+        col("parsed.meetup_rsvp_id").as("meetup_rsvp_id"),
+        col("parsed.currently.temperature").as("temperature")
+      )
+      withWatermark("weather_timestamp", "5 minutes")
+    )
+
+    val joined =
+      flattened.join(weather_parsed, expr("rsvp_id = meetup_rsvp_id"))
+
     val target = (
-      flattened
-      withWatermark("timestamp", "60 minutes")
+      joined
       groupBy(
-        window(col("timestamp"), "60 minute", "60 minute").as("window"),
+        window(col("timestamp"), "5 minute", "5 minute").as("window"),
         col("country"),
         col("city"),
         col("topics.topic_name").as("topic")
       )
-      count()
+      agg(avg("temperature")).as("avg_tmp")
     )
 
     val out = (
@@ -77,7 +117,7 @@ object MeetupTrends {
         col("country"),
         col("city"),
         col("topic"),
-        col("count")
+        col("avg_tmp")
       )
     )
 
@@ -88,8 +128,8 @@ object MeetupTrends {
       jsonOut.writeStream.outputMode("append")
       format("kafka")
       option("kafka.bootstrap.servers", "localhost:29092")
-      option("topic", "meetup_trends_1h")
-      option("checkpointLocation", "file:///tmp/meetup_trends_1h")
+      option("topic", dst)
+      option("checkpointLocation", "file:///tmp/" + dst)
       start
     )
 
