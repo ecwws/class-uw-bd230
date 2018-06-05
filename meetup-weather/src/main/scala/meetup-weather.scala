@@ -40,8 +40,11 @@ object MeetupTrends {
 
     val weather = (new StructType()
       add("currently", new StructType()
-        add("temperature", FloatType)
         add("time", LongType)
+        add("temperature", FloatType)
+        add("humidity", FloatType)
+        add("pressure", FloatType)
+        add("windSpeed", FloatType)
       )
       add("meetup_rsvp_id", LongType)
     )
@@ -91,7 +94,10 @@ object MeetupTrends {
       weather_data.select(
         from_unixtime(col("parsed.currently.time")).cast(TimestampType).as("weather_timestamp"),
         col("parsed.meetup_rsvp_id").as("meetup_rsvp_id"),
-        col("parsed.currently.temperature").as("temperature")
+        col("parsed.currently.temperature").as("temperature"),
+        col("parsed.currently.pressure").as("pressure"),
+        col("parsed.currently.windSpeed").as("windSpeed"),
+        col("parsed.currently.humidity").as("humidity")
       )
       withWatermark("weather_timestamp", "5 minutes")
     )
@@ -107,7 +113,12 @@ object MeetupTrends {
         col("city"),
         col("topics.topic_name").as("topic")
       )
-      agg(avg("temperature")).as("avg_tmp")
+      agg(
+        avg("temperature").as("avg_tmp"),
+        avg("pressure").as("avg_pres"),
+        avg("windSpeed").as("avg_wind"),
+        avg("humidity").as("avg_humi")
+      )
     )
 
     val out = (
