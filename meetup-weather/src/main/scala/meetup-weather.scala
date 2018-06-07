@@ -117,7 +117,8 @@ object MeetupTrends {
         avg("temperature").as("avg_tmp"),
         avg("pressure").as("avg_pres"),
         avg("windSpeed").as("avg_wind"),
-        avg("humidity").as("avg_humi")
+        avg("humidity").as("avg_humi"),
+        count("timestamp").as("count")
       )
     )
 
@@ -128,7 +129,11 @@ object MeetupTrends {
         col("country"),
         col("city"),
         col("topic"),
-        col("avg_tmp")
+        col("avg_tmp"),
+        col("avg_pres"),
+        col("avg_wind"),
+        col("avg_humi"),
+        col("count")
       )
     )
 
